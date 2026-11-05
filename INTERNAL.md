@@ -42,3 +42,13 @@
 `mailbox_throttle pause` → persisted-строка (configEditor офлайн
 недоступен — честный отказ). Живые пункты (боевой Mailbox копией,
 configEditor на реальной строке) — после рестарта.
+
+## Живая приёмка 2026-11-05 (после рестарта, замер)
+
+- `Tool.listTools`: `mailbox_status`, `mailbox_throttle` присутствуют —
+  контракт output{schema,render} подтверждён живым реестром.
+- Вызов `mailbox_status` → «приёмка ПАУЗА, лимит 6/час, доставлено 0»
+  (рубилен false соблюдается).
+- Вызов `mailbox_throttle limit:6` вскрыл живой контракт: вывод валидируется
+  по output.schema, лишние поля — отказ вызова. Исправлено (0.1.2),
+  офлайн-тест усилен validateJsonSchemaValue на значениях.

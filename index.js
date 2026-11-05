@@ -193,7 +193,14 @@ export function apply(ctx, config = {}) {
       if (args.action === 'pause') state.enabled = false
       if (args.action === 'resume') state.enabled = true
       if (args.action === 'limit') state.limitPerHour = Math.max(0, Number(args.limit ?? 6))
-      return { ...snapshot(), persisted: await persist({ enabled: state.enabled, limitPerHour: state.limitPerHour }) }
+      // Живой харнесс валидирует ЗНАЧЕНИЕ по output.schema (замер 2026-11-05:
+      // лишние поля = отказ вызова). Отдаём ровно объявленные; полный снимок —
+      // через mailbox_status.
+      return {
+        enabled: state.enabled,
+        limitPerHour: state.limitPerHour,
+        persisted: await persist({ enabled: state.enabled, limitPerHour: state.limitPerHour }),
+      }
     },
   })
 }
