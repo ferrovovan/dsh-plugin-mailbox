@@ -84,11 +84,13 @@ export function apply(ctx, config = {}) {
   // путь: запись в конфиг-слой профиля, плагин перезапустится с новым
   // значением (документировано в INTERNAL). Отказ — честная строка в
   // ответе тула, а не молчаливая потеря (SOUL №4).
-  const persist = (patch) => {
+  const persist = async (patch) => {
     try {
+      // Форма по reference host-plugin.md: editor.edit(ctx.fiber.entry, fn) —
+      // асинхронный, ждём и ловим отказ (иначе «сохранено» было бы враньём).
       const editor = ctx.get ? ctx.get('configEditor') : undefined
       if (!editor || !ctx.fiber?.entry) return 'не сохранено в конфиг (нет configEditor/строки) — действует до перезапуска'
-      editor.edit(ctx.fiber.entry, (current) => ({ ...(current ?? {}), ...patch }))
+      await editor.edit(ctx.fiber.entry, (current) => ({ ...(current ?? {}), ...patch }))
       return 'сохранено в конфиг строки'
     } catch (error) {
       return `не сохранено в конфиг: ${error?.message ?? error} — действует до перезапуска`
@@ -191,7 +193,7 @@ export function apply(ctx, config = {}) {
       if (args.action === 'pause') state.enabled = false
       if (args.action === 'resume') state.enabled = true
       if (args.action === 'limit') state.limitPerHour = Math.max(0, Number(args.limit ?? 6))
-      return { ...snapshot(), persisted: persist({ enabled: state.enabled, limitPerHour: state.limitPerHour }) }
+      return { ...snapshot(), persisted: await persist({ enabled: state.enabled, limitPerHour: state.limitPerHour }) }
     },
   })
 }
