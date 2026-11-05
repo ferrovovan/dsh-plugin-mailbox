@@ -11,8 +11,9 @@
    `output: {schema, render}` — синхронный TypeError; `defineTool` НЕ
    обязателен, inline-`output` в raw-определении достаточно (схемы —
    подмножество JSON Schema, см. docs/РАЗРАБОТКА.md). Опечатка-прецедент
-   Прецедент live-проверки формы — прогон dsh-wave-gate-tool 0.2.0
-   (этап 1, см. его INTERNAL.md).
+   Офлайн-подтверждение формы — прогон dsh-wave-gate-tool 0.1.1 через
+   настоящие валидаторы core/tools; живое подтверждение реестром — за
+   рестартом DSH (см. его INTERNAL.md).
 2. **Форма `agent.inject`.** ЗАКРЫТ (исходник `dsh-agent/src/runtime-types.ts`):
    `inject(message: UserMessage)` — объект, НЕ строка; без пробуждения.
    `followup(message: UserMessage)` — будит; `steer`, `send(message,
