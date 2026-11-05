@@ -6,12 +6,17 @@
 
 ## Неизвестные (закрыть до 0.2.0)
 
-1. **Регистрация raw-инструментов.** Принимает ли `tools.register`
-   определение без `output`/`defineTool`. Проверить: установка + `Tool.listTools`;
-   при отказе — использовать `defineTool` из `@deepseek-ai/dsh-tools`
-   (зависимость от резолва пакета из установки dsh — проверить).
-2. **Форма `agent.inject`.** Строка или объект сообщения — смотреть
-   `dsh-agent` (`lib/types/**`, JSDoc) и practices.md (`agent/inbox/spliced`).
+1. **Регистрация raw-инструментов.** ЗАКРЫТ 2026-11-05 (этап 0, исходник
+   `core/tools/src/index.ts:128–136`, харнесс 0.2.2-alpha.2): без
+   `output: {schema, render}` — синхронный TypeError; `defineTool` НЕ
+   обязателен, inline-`output` в raw-определении достаточно (схемы —
+   подмножество JSON Schema, см. docs/РАЗРАБОТКА.md). Опечатка-прецедент
+   Прецедент live-проверки формы — прогон dsh-wave-gate-tool 0.2.0
+   (этап 1, см. его INTERNAL.md).
+2. **Форма `agent.inject`.** ЗАКРЫТ (исходник `dsh-agent/src/runtime-types.ts`):
+   `inject(message: UserMessage)` — объект, НЕ строка; без пробуждения.
+   `followup(message: UserMessage)` — будит; `steer`, `send(message,
+   target, wakeup)` — рядом там же. 0.1.0 передаёт — проверить на этапе 3.
 3. **Адресация цели.** `targetSession` — id из GUI; добавить подсказку в
    README, где его взять; вариант доводки — `/почта привязать` как
    slash-команда, привязывающая текущую сессию.
