@@ -1,0 +1,9 @@
+- insert:
+    - id: mailbox
+      name: '@local/dsh-mailbox'
+      config:
+        root: /home/vovan/Предприниматель/Mailbox
+        role: Coordinator   # чей ящик принимаем: Coordinator | Assistant
+        targetSession: ""   # id сессии-получателя; пусто — доставку не делать
+        enabled: false      # рубильник: по умолчанию ВЫКЛ
+        limitPerHour: 6     # почасовой порог приёмки; 0 — без лимита

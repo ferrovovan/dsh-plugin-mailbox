@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Mailbox",
+    "description": "Delivers new Mailbox letters into the receiving session, with receiver-controlled throttle: hourly cap, pause, and full stop."
+  }
+}
