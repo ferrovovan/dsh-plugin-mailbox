@@ -48,14 +48,15 @@ const STATUS_SCHEMA = {
       ],
       description: 'Причина последнего пропуска (null — пропусков не было).',
     },
+    target: { type: 'string', description: 'Сессия-получатель (или примечание о единственной живой).' },
   },
-  required: ['enabled', 'limitPerHour', 'deliveredThisHour', 'lastSkip'],
+  required: ['enabled', 'limitPerHour', 'deliveredThisHour', 'lastSkip', 'target'],
   additionalProperties: false,
 }
 
 function renderStatus(_args, v) {
   const skip = v.lastSkip ? ` | последний пропуск: ${v.lastSkip.reason}` : ''
-  return [{ type: 'text', text: `mailbox: приёмка ${v.enabled ? 'ВКЛ' : 'ПАУЗА'}, лимит ${v.limitPerHour || 'нет'}/час, доставлено ${v.deliveredThisHour}${skip}` }]
+  return [{ type: 'text', text: `mailbox: приёмка ${v.enabled ? 'ВКЛ' : 'ПАУЗА'}, лимит ${v.limitPerHour || 'нет'}/час, доставлено ${v.deliveredThisHour}, цель: ${v.target}${skip}` }]
 }
 
 export function apply(ctx, config = {}) {
@@ -69,6 +70,9 @@ export function apply(ctx, config = {}) {
   const state = {
     enabled: config.enabled === true, // по умолчанию ВЫКЛ
     limitPerHour: Number.isFinite(Number(config.limitPerHour)) ? Math.max(0, Number(config.limitPerHour)) : 6,
+    // Живое подтверждение (замер 2026-11-05): ctx.agents.get(«session-…»)
+    // резолвится — ключ реестра есть id сессии (typert-resolver index.ts:272).
+    target: typeof config.targetSession === 'string' ? config.targetSession : '',
     windowStart: Date.now(),
     delivered: 0,
     seen: new Set(),
@@ -109,13 +113,13 @@ export function apply(ctx, config = {}) {
     const f = parseLetter(text)
     if (/закрыто|отклонено/i.test(f['Статус'] ?? '')) return
     let agent
-    if (config.targetSession) agent = ctx.agents.get(config.targetSession)
+    if (state.target) agent = ctx.agents.get(state.target)
     else {
-      // targetSession пуст: если живых агентов ровно один — он получатель
+      // Цель пуста: если живых агентов ровно один — он получатель
       // (смысл ящика «для хозяина»); при нескольких — не угадываем.
       const live = ctx.agents.list()
       if (live.length === 1) agent = live[0]
-      else return skip(`цель не определена (живых сессий: ${live.length}) — заполни config.targetSession`)
+      else return skip(`цель не определена (живых сессий: ${live.length}) — задай targetSession (tuл mailbox_throttle action=target)`)
     }
     if (!agent) return skip('targetSession не задан или сессии нет — доставка пропущена')
     const note = `[Почта/${role}] ${f['Тема'] ?? path.basename(file)} (от ${f['От'] ?? '?'}), файл: ${file}`
@@ -156,6 +160,7 @@ export function apply(ctx, config = {}) {
     limitPerHour: state.limitPerHour,
     deliveredThisHour: state.delivered,
     lastSkip: state.lastSkip,
+    target: state.target || '(единственная живая; если их несколько — письма копятся)',
   })
 
   // Инструменты: право получателя над собственной приёмкой.
@@ -178,8 +183,9 @@ export function apply(ctx, config = {}) {
     parameters: {
       type: 'object',
       properties: {
-        action: { type: 'string', enum: ['pause', 'resume', 'limit'], description: 'Что сделать с приёмкой.' },
+        action: { type: 'string', enum: ['pause', 'resume', 'limit', 'target'], description: 'Что сделать с приёмкой.' },
         limit: { type: 'integer', description: 'Для action=limit: писем в час, 0 — без лимита.' },
+        session: { type: 'string', description: 'Для action=target: id сессии-получателя (session-…), пустая строка — «единственная живая».' },
       },
       required: ['action'],
       additionalProperties: false,
@@ -198,16 +204,23 @@ export function apply(ctx, config = {}) {
       render: (_args, v) => [{ type: 'text', text: `mailbox: приёмка ${v.enabled ? 'ВКЛ' : 'ПАУЗА'}, лимит ${v.limitPerHour || 'нет'}/час — ${v.persisted}` }],
     },
     async execute(args) {
-      if (args.action === 'pause') state.enabled = false
-      if (args.action === 'resume') state.enabled = true
-      if (args.action === 'limit') state.limitPerHour = Math.max(0, Number(args.limit ?? 6))
+      const patch = {}
+      if (args.action === 'pause') { state.enabled = false; patch.enabled = false }
+      if (args.action === 'resume') { state.enabled = true; patch.enabled = true }
+      if (args.action === 'limit') { state.limitPerHour = Math.max(0, Number(args.limit ?? 6)); patch.limitPerHour = state.limitPerHour }
+      if (args.action === 'target') {
+        const id = String(args.session ?? '')
+        if (id !== '' && !ctx.agents.get(id)) return { enabled: state.enabled, limitPerHour: state.limitPerHour, persisted: `отказ: сессии ${id} нет в реестре` }
+        state.target = id
+        patch.targetSession = id
+      }
       // Живой харнесс валидирует ЗНАЧЕНИЕ по output.schema (замер 2026-11-05:
       // лишние поля = отказ вызова). Отдаём ровно объявленные; полный снимок —
       // через mailbox_status.
       return {
         enabled: state.enabled,
         limitPerHour: state.limitPerHour,
-        persisted: await persist({ enabled: state.enabled, limitPerHour: state.limitPerHour }),
+        persisted: Object.keys(patch).length ? await persist(patch) : 'менять нечего',
       }
     },
   })
