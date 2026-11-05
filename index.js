@@ -108,7 +108,15 @@ export function apply(ctx, config = {}) {
     try { text = fs.readFileSync(file, 'utf8') } catch (error) { return skip(`письмо не читается: ${error?.message}`) }
     const f = parseLetter(text)
     if (/закрыто|отклонено/i.test(f['Статус'] ?? '')) return
-    const agent = config.targetSession ? ctx.agents.get(config.targetSession) : undefined
+    let agent
+    if (config.targetSession) agent = ctx.agents.get(config.targetSession)
+    else {
+      // targetSession пуст: если живых агентов ровно один — он получатель
+      // (смысл ящика «для хозяина»); при нескольких — не угадываем.
+      const live = ctx.agents.list()
+      if (live.length === 1) agent = live[0]
+      else return skip(`цель не определена (живых сессий: ${live.length}) — заполни config.targetSession`)
+    }
     if (!agent) return skip('targetSession не задан или сессии нет — доставка пропущена')
     const note = `[Почта/${role}] ${f['Тема'] ?? path.basename(file)} (от ${f['От'] ?? '?'}), файл: ${file}`
     try {

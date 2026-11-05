@@ -5,5 +5,5 @@
         root: /home/vovan/Предприниматель/Mailbox
         role: Coordinator   # чей ящик принимаем: Coordinator | Assistant
         targetSession: ""   # id сессии-получателя; пусто — доставку не делать
-        enabled: false      # рубильник: по умолчанию ВЫКЛ
+        enabled: true       # рубильник ВКЛ словами Мастера 2026-11-05
         limitPerHour: 6     # почасовой порог приёмки; 0 — без лимита
