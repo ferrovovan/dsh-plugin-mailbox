@@ -2,14 +2,17 @@
  * «Почта» — доставка писем Mailbox/ (протокол: Mailbox/README.md) в
  * сессию-получателя.
  *
- * Статус 0.1.0: заготовка. Слежение, лимиты и инструменты регулирования
- * — рабочий контур; форма inject-аргумента и адресация цели — неизвестные
- * (INTERNAL.md).
+ * Статус 0.1.1: контракт регистрации тулов — как требует харнесс
+ * 0.2.2-alpha.2 (output{schema,render}, см. docs/РАЗРАБОТКА.md);
+ * agent.inject получает полноценный UserMessage (исходник dsh-agent
+ * runtime-types + createUserMessage из dsh-llm: {id uuid, role:'user',
+ * content, source:{kind}} — прецедент cordis-host-runner index.ts:1169).
  *
  * Контракт хозяина (2026-11-05): у получателя право снизить порог,
  * поставить паузу и полностью отключить вкидывание — инструментами
  * mailbox_throttle / mailbox_status и конфигом строки.
  */
+import { randomUUID } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 
@@ -21,10 +24,38 @@ const FIELDS = new Set(['От', 'Кому', 'Тема', 'Статус', 'Нуж�
 function parseLetter(text) {
   const fields = {}
   for (const line of text.split(/\r?\n/)) {
-    const m = line.match(/^\s*\*{0,2}([А-ЯЁA-Za-z][-\wА-ЯЁ]*)\*{0,2}:\s*(.*)$/)
+    const m = line.match(/^\s*\*{0,2}([А-ЯЁA-Za-z][-\wА-ЯЁа-яё]*)\*{0,2}:\s*(.*)$/)
     if (m && FIELDS.has(m[1])) fields[m[1]] = m[2].trim()
   }
   return fields
+}
+
+const STATUS_SCHEMA = {
+  type: 'object',
+  properties: {
+    enabled: { type: 'boolean', description: 'Приёмка включена.' },
+    limitPerHour: { type: 'integer', description: 'Порог писем в час; 0 — без лимита.' },
+    deliveredThisHour: { type: 'integer', description: 'Доставлено в текущем окне.' },
+    lastSkip: {
+      oneOf: [
+        { type: 'null' },
+        {
+          type: 'object',
+          properties: { ts: { type: 'string' }, reason: { type: 'string' } },
+          required: ['ts', 'reason'],
+          additionalProperties: false,
+        },
+      ],
+      description: 'Причина последнего пропуска (null — пропусков не было).',
+    },
+  },
+  required: ['enabled', 'limitPerHour', 'deliveredThisHour', 'lastSkip'],
+  additionalProperties: false,
+}
+
+function renderStatus(_args, v) {
+  const skip = v.lastSkip ? ` | последний пропуск: ${v.lastSkip.reason}` : ''
+  return [{ type: 'text', text: `mailbox: приёмка ${v.enabled ? 'ВКЛ' : 'ПАУЗА'}, лимит ${v.limitPerHour || 'нет'}/час, доставлено ${v.deliveredThisHour}${skip}` }]
 }
 
 export function apply(ctx, config = {}) {
@@ -48,6 +79,22 @@ export function apply(ctx, config = {}) {
     console.warn('[mailbox]', reason)
   }
 
+  // Постоянство паузы/лимита (этап 3 №3): пробуем записать в конфиг строки
+  // через configEditor. Поле без схемы не объявлено .volatile() — обычный
+  // путь: запись в конфиг-слой профиля, плагин перезапустится с новым
+  // значением (документировано в INTERNAL). Отказ — честная строка в
+  // ответе тула, а не молчаливая потеря (SOUL №4).
+  const persist = (patch) => {
+    try {
+      const editor = ctx.get ? ctx.get('configEditor') : undefined
+      if (!editor || !ctx.fiber?.entry) return 'не сохранено в конфиг (нет configEditor/строки) — действует до перезапуска'
+      editor.edit(ctx.fiber.entry, (current) => ({ ...(current ?? {}), ...patch }))
+      return 'сохранено в конфиг строки'
+    } catch (error) {
+      return `не сохранено в конфиг: ${error?.message ?? error} — действует до перезапуска`
+    }
+  }
+
   const deliver = (file) => {
     if (!state.enabled) return skip('приёмка выключена (пауза) — письмо не доставлено')
     if (state.limitPerHour > 0) {
@@ -63,8 +110,14 @@ export function apply(ctx, config = {}) {
     if (!agent) return skip('targetSession не задан или сессии нет — доставка пропущена')
     const note = `[Почта/${role}] ${f['Тема'] ?? path.basename(file)} (от ${f['От'] ?? '?'}), файл: ${file}`
     try {
-      // НЕИЗВЕСТНЫЙ №2 (INTERNAL.md): точная форма аргумента agent.inject.
-      agent.inject(note)
+      // UserMessage: форма по dsh-llm createUserMessage (id=uuid, role,
+      // content-блоки, source.kind продюсера — merge-extensible).
+      agent.inject({
+        id: randomUUID(),
+        role: 'user',
+        content: [{ type: 'text', text: note }],
+        source: { kind: 'dsh-mailbox' },
+      })
       state.delivered += 1
     } catch (error) {
       skip(`inject не удался: ${error?.message}`)
@@ -88,24 +141,30 @@ export function apply(ctx, config = {}) {
     return () => { try { watcher?.close() } catch { /* уже закрыт */ } }
   }, 'mailbox.watch')
 
+  const snapshot = () => ({
+    enabled: state.enabled,
+    limitPerHour: state.limitPerHour,
+    deliveredThisHour: state.delivered,
+    lastSkip: state.lastSkip,
+  })
+
   // Инструменты: право получателя над собственной приёмкой.
-  const register = (definition) => {
-    try { ctx.effect(() => ctx.tools.register(definition), `mailbox.tool(${definition.name})`) }
-    catch (error) { skip(`тул ${definition.name} не зарегистрирован (неизвестный №3): ${error?.message}`) }
-  }
+  // Без try/catch: отказ регистрации — громкий (SOUL семьи №4).
+  const register = (definition) => ctx.effect(() => ctx.tools.register(definition), `mailbox.tool(${definition.name})`)
 
   register({
     name: 'mailbox_status',
     description: 'Состояние приёмки почты: вкл/выкл, почасовой порог, доставлено в этом часе, причина последнего пропуска.',
     parameters: { type: 'object', properties: {}, additionalProperties: false },
+    output: { schema: STATUS_SCHEMA, render: renderStatus },
     async execute() {
-      return { enabled: state.enabled, limitPerHour: state.limitPerHour, deliveredThisHour: state.delivered, lastSkip: state.lastSkip }
+      return snapshot()
     },
   })
 
   register({
     name: 'mailbox_throttle',
-    description: 'Регулировка приёмки почты получателя: pause — пауза (письма не вкидываются), resume — возобновить, limit — почасовой порог (0 — без лимита). Влияет только на этот ящик.',
+    description: 'Регулировка приёмки почты получателя: pause — пауза (письма не вкидываются), resume — возобновить, limit — почасовой порог (0 — без лимита). Влияет только на этот ящик; пауза/лимит пытаются сохраниться в конфиг строки.',
     parameters: {
       type: 'object',
       properties: {
@@ -115,11 +174,24 @@ export function apply(ctx, config = {}) {
       required: ['action'],
       additionalProperties: false,
     },
+    output: {
+      schema: {
+        type: 'object',
+        properties: {
+          enabled: { type: 'boolean' },
+          limitPerHour: { type: 'integer' },
+          persisted: { type: 'string', description: 'Куда попала настройка: сохранено/не сохранено и почему.' },
+        },
+        required: ['enabled', 'limitPerHour', 'persisted'],
+        additionalProperties: false,
+      },
+      render: (_args, v) => [{ type: 'text', text: `mailbox: приёмка ${v.enabled ? 'ВКЛ' : 'ПАУЗА'}, лимит ${v.limitPerHour || 'нет'}/час — ${v.persisted}` }],
+    },
     async execute(args) {
       if (args.action === 'pause') state.enabled = false
       if (args.action === 'resume') state.enabled = true
       if (args.action === 'limit') state.limitPerHour = Math.max(0, Number(args.limit ?? 6))
-      return { enabled: state.enabled, limitPerHour: state.limitPerHour }
+      return { ...snapshot(), persisted: persist({ enabled: state.enabled, limitPerHour: state.limitPerHour }) }
     },
   })
 }

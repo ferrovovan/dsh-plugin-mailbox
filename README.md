@@ -28,3 +28,11 @@
 
 `install_bundle` с путём репо; после правок `make check`; чек-лист доводки
 — `INTERNAL.md`.
+
+## Где взять `targetSession`
+
+Идентификатор сессии-получателя: `session-<uuid>` — видно в адресной
+строке GUI (`.../session/session-…`), в имени каталога журнала
+`~/.dsh/sessions/<workspace>/session-…/`, или спросить у агента этой
+сессии (`agent.session.id`). Пустое поле — доставка не делается, письма
+накапливаются с пометкой пропуска в `mailbox_status`.

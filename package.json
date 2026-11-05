@@ -1,6 +1,6 @@
 {
   "name": "@local/dsh-mailbox",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "Доставка писем Mailbox/ в сессию с регулируемым порогом приёмки (лимит/пауза/отключение)",
   "type": "module",

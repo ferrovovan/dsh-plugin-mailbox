@@ -1,5 +1,20 @@
 # CHANGELOG
 
+## 0.1.1 — 2026-11-05
+- Фикс парсера писем: регулярка не ловила кириллические имена полей в
+  нижнем регистре («Тема», «Статус»…) — на живом формате Mailbox/
+  (plain `Тема: …`) НЕ расшивалось ни одно поле (замер офлайн).
+- Контракт тулов: `mailbox_status`/`mailbox_throttle` несут обязательный
+  `output {schema, render}` (харнесс 0.2.2-alpha.2: без него register
+  бросает TypeError); отказ регистрации — громкий.
+- `agent.inject` получает полноценный UserMessage (id uuid, role,
+  content-блоки, source.kind=dsh-mailbox) — по dsh-llm createUserMessage.
+- Пауза/лимит: попытка сохранения в конфиг строки через configEditor;
+  при отказе — честная строка `persisted` в ответе тула.
+- README: где взять targetSession.
+- Офлайн-прогон живым fs.watch: пауза→0, resume→доставка, закрытое→минус,
+  лимит 2→3-е отклонено с причиной (цифры в INTERNAL.md).
+
 ## 0.1.0 — 2026-11-05
 - Заготовка: слежение ящика, почасовой порог, пауза/возобновление
   (`mailbox_throttle`, `mailbox_status`), доставка-заметка в targetSession,
